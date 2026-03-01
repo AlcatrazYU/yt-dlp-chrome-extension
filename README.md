@@ -112,30 +112,16 @@ yt-dlp（读取 Safari Cookie → 请求 YouTube）
 - yt-dlp（`brew install yt-dlp`）
 - Google Chrome
 
-### 第一步：加载 Chrome 扩展
+### 第一步：加载 Chrome 扩展（仅首次）
 
 1. 打开 Chrome，访问 `chrome://extensions/`
 2. 右上角开启**开发者模式**
 3. 点击**加载已解压的扩展程序**
 4. 选择本项目根目录（包含 `manifest.json` 的文件夹）
 
-### 第二步：启动本地服务器
+### 第二步：下载视频（日常使用）
 
-每次使用前在终端运行：
-
-```bash
-python3 /path/to/server.py
-```
-
-看到以下输出表示服务器就绪：
-
-```
-✅ 服务器已启动 → http://localhost:19898
-📁 下载目录：/Users/你的用户名/Desktop
-按 Ctrl+C 停止
-```
-
-### 第三步：下载视频
+服务器通过 launchd 开机自动启动，**无需手动开终端**，登录 Mac 后直接使用：
 
 1. 在 Chrome 中打开任意 YouTube 视频（`youtube.com/watch?v=...`）
 2. 点击工具栏中的扩展图标
@@ -143,9 +129,23 @@ python3 /path/to/server.py
 4. 选择画质，勾选需要的字幕语言
 5. 点击**下载**，文件自动保存到桌面
 
+### 手动控制服务器
+
+通常不需要手动操作。如有需要：
+
+```bash
+# 停止
+launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+
+# 启动
+launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+
+# 查看日志
+tail -f /tmp/ytdlp-server.log
+```
+
 ### 注意事项
 
-- 服务器窗口需保持开启，关闭后扩展无法工作
 - 字幕文件（`.srt`）与视频文件同名保存在桌面，IINA / VLC 可自动加载
 - 视频使用 `mp4` 容器输出；若音视频格式不兼容，yt-dlp 会自动调用 ffmpeg 合并
 
