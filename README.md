@@ -176,8 +176,24 @@ TubeGet 对 yt-dlp 二进制做了加密混淆（文件名改为 `ytdlpgz`，内
 
 ```
 .
-├── server.py          # 本地 HTTP 服务器（核心后端）
-├── manifest.json      # Chrome 扩展清单（Manifest V3）
-├── popup.html         # 扩展弹窗 UI（含 CSS）
-└── popup.js           # 弹窗交互逻辑
+├── server.py                      # 本地 HTTP 服务器（核心后端）
+├── com.user.ytdlp-server.plist    # launchd 配置，开机自动启动服务器
+├── manifest.json                  # Chrome 扩展清单（Manifest V3）
+├── popup.html                     # 扩展弹窗 UI（含 CSS）
+└── popup.js                       # 弹窗交互逻辑
+```
+
+### 启用开机自启
+
+将 plist 文件复制到 launchd 目录并加载：
+
+```bash
+cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+```
+
+取消自启：
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
 ```
