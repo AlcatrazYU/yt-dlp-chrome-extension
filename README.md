@@ -56,7 +56,12 @@ brew install yt-dlp
   - yt-dlp 调用加入 `--no-playlist` 防止误解析播放列表
   - 整体超时从 60 秒延长至 90 秒，并加入 `--socket-timeout 30`
 
-### v1.3 — 播放列表误下载修复
+### v1.3 — 开机自动启动
+- 新增 launchd 配置文件（`com.user.ytdlp-server.plist`），登录 macOS 后服务器自动在后台启动，无需手动开终端运行
+- 服务器崩溃时 launchd 自动重启，日志输出至 `/tmp/ytdlp-server.log`
+- 排查并解决 macOS 隐私机制拦截 Safari Cookie 读取的问题：需在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中添加真实 Python 二进制路径（`/opt/homebrew/Cellar/python@3.14/.../python3.14`），而非符号链接
+
+### v1.4 — 播放列表误下载修复
 **问题**：在带有 `&list=RD...`（YouTube Radio Mix）参数的页面使用扩展时，yt-dlp 将其识别为播放列表，导致下载了大量无关视频；下载任务结束前再次点击下载，服务器返回「已有下载任务进行中」且无法解除。
 
 **根本原因**：`clean_youtube_url()` 只在获取视频信息（`/info`）时调用，下载（`/download`）时漏掉了，导致完整的含播放列表参数的 URL 被直接传给 yt-dlp。
