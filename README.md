@@ -56,6 +56,15 @@ brew install yt-dlp
   - yt-dlp 调用加入 `--no-playlist` 防止误解析播放列表
   - 整体超时从 60 秒延长至 90 秒，并加入 `--socket-timeout 30`
 
+### v1.3 — 播放列表误下载修复
+**问题**：在带有 `&list=RD...`（YouTube Radio Mix）参数的页面使用扩展时，yt-dlp 将其识别为播放列表，导致下载了大量无关视频；下载任务结束前再次点击下载，服务器返回「已有下载任务进行中」且无法解除。
+
+**根本原因**：`clean_youtube_url()` 只在获取视频信息（`/info`）时调用，下载（`/download`）时漏掉了，导致完整的含播放列表参数的 URL 被直接传给 yt-dlp。
+
+**修复内容**：
+- `/download` 接口同样调用 `clean_youtube_url()` 净化 URL，确保无论链接多长都只下载当前视频
+- 新增 `/reset` 接口，任务卡住时无需重启服务器，直接访问 `http://localhost:19898/reset` 即可解除锁定
+
 ---
 
 ## 技术要点
@@ -155,6 +164,21 @@ ERROR: [Errno 1] Operation not permitted: '.../Safari/.../Cookies.binarycookies'
 > **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。
 
 授权后重启服务生效：
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+launchctl load  ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+```
+
+### 常见问题：提示「已有下载任务进行中」
+
+若扩展弹窗一直显示该提示无法提交新任务，在浏览器访问以下地址强制解锁：
+
+```
+http://localhost:19898/reset
+```
+
+看到 `{"ok": true}` 即恢复正常。若 `/reset` 返回 `{"error": "Not found"}`，说明服务器运行的是旧版代码，需重启服务：
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
