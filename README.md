@@ -28,7 +28,11 @@
 brew install yt-dlp
 ```
 
-本项目通过读取 Safari 浏览器的 Cookie（`--cookies-from-browser safari`）访问 YouTube，无需单独登录配置。
+本项目使用 Chrome 扩展作为操作界面，但实际下载由本地 `server.py` 调用 yt-dlp 完成。yt-dlp 通过读取 **Safari** 的 Cookie（`--cookies-from-browser safari`）向 YouTube 证明登录身份。
+
+之所以读 Safari 而非 Chrome 的 Cookie，是因为 Chrome 在 macOS 上对 Cookie 做了系统钥匙串加密，yt-dlp 读取时会触发系统密码弹窗；而 Safari 的 Cookie 可直接访问，更稳定。
+
+> **注意**：需要在 Safari 中保持 YouTube 登录状态，yt-dlp 才能获取到有效身份凭证。
 
 ---
 
