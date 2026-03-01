@@ -137,6 +137,41 @@ python3 /path/to/server.py
 
 ---
 
+## 附：与同类付费软件的对比分析
+
+本机安装有 **Gihosoft TubeGet**（一款付费 YouTube 下载软件），通过解包其 `.app` 内容，发现其核心技术与本项目几乎完全相同。
+
+### TubeGet 内部文件结构
+
+```
+Gihosoft TubeGet.app/Contents/MacOS/
+├── ytdlpgz          ← 21MB，经过加密混淆的 yt-dlp 二进制
+├── ffmpeg           ← ffmpeg 8.0（开源）
+├── deno             ← Deno 2.5.4（开源 JS 运行时）
+├── libcookies.dylib ← 读取浏览器 Cookie 的动态库
+└── data/
+    ├── chrome-plugin.zip     ← 内置 Chrome 扩展
+    └── chrome-plugin-en.zip
+```
+
+### 技术对比
+
+| 组件 | Gihosoft TubeGet | 本项目 |
+|------|-----------------|--------|
+| 核心下载引擎 | `ytdlpgz`（混淆过的 yt-dlp） | yt-dlp（Homebrew 最新版） |
+| 音视频合并 | 内置 ffmpeg | 系统 ffmpeg |
+| JS 运行时 | 内置 Deno | — |
+| Cookie 读取 | `libcookies.dylib` | `--cookies-from-browser safari` |
+| 操作界面 | Qt 桌面 GUI | Chrome 扩展弹窗 |
+
+### 为何 TubeGet 更容易下载失败？
+
+TubeGet 将 yt-dlp 以固定版本打包进安装包，必须等厂商发布新版才能更新；而本项目通过 Homebrew 管理 yt-dlp，执行 `brew upgrade yt-dlp` 即可跟进最新版本，响应 YouTube 的规则变化更及时。
+
+TubeGet 对 yt-dlp 二进制做了加密混淆（文件名改为 `ytdlpgz`，内容不可读），可能是为了隐藏其底层依赖开源免费工具这一事实。yt-dlp 本身以 [The Unlicense](https://unlicense.org/) 授权，允许任意商业使用，但这种做法在透明度上存在争议。
+
+---
+
 ## 文件结构
 
 ```
