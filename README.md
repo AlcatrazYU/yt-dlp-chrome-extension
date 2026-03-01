@@ -135,6 +135,32 @@ python3 /path/to/server.py
 - 字幕文件（`.srt`）与视频文件同名保存在桌面，IINA / VLC 可自动加载
 - 视频使用 `mp4` 容器输出；若音视频格式不兼容，yt-dlp 会自动调用 ffmpeg 合并
 
+### 常见问题：Safari Cookie 访问被拒绝
+
+若出现以下错误：
+
+```
+ERROR: [Errno 1] Operation not permitted: '.../Safari/.../Cookies.binarycookies'
+```
+
+原因是 macOS 隐私机制阻止 Python 读取 Safari 的 Cookie 文件。需手动授权：
+
+1. 「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
+2. 点击 **`+`**，按 **`⌘ Shift G`**，粘贴路径：
+   ```
+   /opt/homebrew/Cellar/python@3.14/3.14.3_1/bin
+   ```
+3. 选中 **`python3.14`**，点打开，确认开关已开启
+
+> **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。
+
+授权后重启服务生效：
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+launchctl load  ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+```
+
 ---
 
 ## 附：与同类付费软件的对比分析
