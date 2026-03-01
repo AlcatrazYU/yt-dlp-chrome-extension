@@ -67,6 +67,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p.path == "/status":
             with _lock:
                 self.send_json(dict(_state))
+        elif p.path == "/reset":
+            with _lock:
+                _state.update({"running": False, "message": "已重置"})
+            self.send_json({"ok": True})
         elif p.path == "/info":
             url = qs.get("url", [""])[0]
             if not url:
@@ -146,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
         with _lock:
             _state = {"running": True, "message": "正在下载…"}
 
-        url  = data.get("url", "")
+        url  = clean_youtube_url(data.get("url", ""))  # 同样剥掉 list/pp/si 等参数
         fmt  = data.get("format", "bestvideo+bestaudio/best")
         subs = data.get("subtitles", [])
 
