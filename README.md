@@ -131,16 +131,23 @@ cd yt-dlp-chrome-extension
 
 或者直接在 [GitHub 页面](https://github.com/AlcatrazYU/yt-dlp-chrome-extension) 点击 **Code → Download ZIP** 解压。
 
-### 第三步：配置开机自启（仅首次）
-
-将 plist 文件复制到 launchd 目录并加载，服务器会在每次登录 Mac 后自动在后台启动：
+### 第三步：启动服务器
 
 ```bash
-cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+python3 server.py
 ```
 
-> **注意**：plist 中的 `server.py` 路径默认为 `/Users/yuhaoyong/yt-dlp-extension/server.py`，如果你的项目路径不同，需先用文本编辑器修改 plist 文件中的路径。
+终端显示 `Server running on port 19898` 即表示启动成功，保持终端窗口打开即可。
+
+> **可选：配置开机自启**
+>
+> 如果不想每次手动启动，可以用 macOS 的 launchd 实现开机自动运行：
+> ```bash
+> # 先修改 plist 中的 server.py 路径为你的实际路径
+> cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
+> launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+> ```
+> 配置后每次开机服务器自动在后台启动，无需打开终端。
 
 ### 第四步：授权 Cookie 读取（仅首次）
 
@@ -165,7 +172,7 @@ yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁
 
 ### 日常使用
 
-以上步骤配置完成后，以后开机即可直接使用，无需打开终端：
+以上步骤配置完成后，确保服务器正在运行（手动启动或已配置自启），即可使用：
 
 1. 在 Chrome 中打开任意 YouTube 视频
 2. 点击工具栏中的扩展图标
