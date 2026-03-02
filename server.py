@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """yt-dlp 本地服务器，供 Chrome 扩展调用"""
 
-import json, subprocess, os, threading, time
+import json, subprocess, os, threading, time, socket
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 
@@ -9,6 +9,28 @@ YT_DLP      = "/opt/homebrew/bin/yt-dlp"
 SAVE_DIR    = os.path.expanduser("~/Desktop")
 PORT        = 19898
 CACHE_TTL   = 600  # 秒，10 分钟内同一视频直接返回缓存
+
+# 代理设置（ClashX Meta 默认端口）
+PROXY_ADDR  = "127.0.0.1"
+PROXY_PORT  = 7890
+
+
+def _proxy_available():
+    """检测代理端口是否可用"""
+    try:
+        s = socket.create_connection((PROXY_ADDR, PROXY_PORT), timeout=1)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _ytdlp_base_cmd():
+    """返回 yt-dlp 的基础命令（含 Cookie，代理可用时自动走代理）"""
+    cmd = [YT_DLP, "--cookies-from-browser", "safari"]
+    if _proxy_available():
+        cmd += ["--proxy", f"http://{PROXY_ADDR}:{PROXY_PORT}"]
+    return cmd
 
 _lock  = threading.Lock()
 _state = {"running": False, "message": "空闲"}
@@ -108,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             r = subprocess.run(
-                [YT_DLP, "--cookies-from-browser", "safari", "-j", "--no-warnings",
+                _ytdlp_base_cmd() + ["-j", "--no-warnings",
                  "--no-playlist", "--socket-timeout", "30", url],
                 capture_output=True, text=True, timeout=90,
             )
@@ -154,13 +176,11 @@ class Handler(BaseHTTPRequestHandler):
         fmt  = data.get("format", "bestvideo+bestaudio/best")
         subs = data.get("subtitles", [])
 
-        cmd = [
-            YT_DLP, "--cookies-from-browser", "safari",
+        cmd = _ytdlp_base_cmd() + [
             "-f", fmt,
             "--merge-output-format", "mp4",
             "-o", os.path.join(SAVE_DIR, "%(title)s.%(ext)s"),
-            url,
-        ]
+            url]
         if subs:
             cmd += [
                 "--write-subs", "--write-auto-subs",
@@ -205,6 +225,8 @@ if __name__ == "__main__":
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"✅ 服务器已启动 → http://localhost:{PORT}")
     print(f"📁 下载目录：{SAVE_DIR}")
+    proxy_status = f"http://{PROXY_ADDR}:{PROXY_PORT}" if _proxy_available() else "未检测到（直连）"
+    print(f"🌐 代理：{proxy_status}")
     print("按 Ctrl+C 停止\n")
     try:
         httpd.serve_forever()

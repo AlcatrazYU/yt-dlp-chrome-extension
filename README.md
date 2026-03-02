@@ -13,6 +13,7 @@
 - 视频信息本地缓存（10 分钟内重复打开同一视频秒速响应）
 - 下载任务在后台异步执行，弹窗实时显示进度
 - 文件默认保存至桌面（`~/Desktop`）
+- 自动检测本地代理（如 ClashX），代理开启时自动走代理，关闭时直连，无需手动切换
 
 ---
 
@@ -70,6 +71,13 @@ brew install yt-dlp
 - `/download` 接口同样调用 `clean_youtube_url()` 净化 URL，确保无论链接多长都只下载当前视频
 - 新增 `/reset` 接口，任务卡住时无需重启服务器，直接访问 `http://localhost:19898/reset` 即可解除锁定
 
+### v1.5 — 代理自动检测
+**问题**：通过代理（如 ClashX）访问 YouTube 时，yt-dlp 仍走直连，YouTube 检测到 Cookie 的 IP 与请求 IP 不一致，返回「Sign in to confirm you're not a bot」错误。
+
+**修复内容**：
+- 服务器每次调用 yt-dlp 前自动探测本地代理端口（默认 `127.0.0.1:7890`），可用则自动加上 `--proxy` 参数
+- 代理关闭时自动回退为直连，无需重启服务器或手动修改配置
+
 ---
 
 ## 技术要点
@@ -99,6 +107,7 @@ yt-dlp（读取 Safari Cookie → 请求 YouTube）
 | 下载进度 | 下载任务在 daemon 线程中运行，前端每 1.5 秒轮询 `/status` 接口 |
 | 信息缓存 | 服务端 `dict` + 时间戳实现 LRU-like 缓存，有效期 10 分钟 |
 | URL 净化 | `urllib.parse` 解析 URL，仅保留 `v=` 参数重新拼接，避免追踪参数干扰 |
+| 代理自适应 | 每次请求前探测 `127.0.0.1:7890`，可用则自动走代理，否则直连，适配 ClashX 等代理工具 |
 | Chrome 权限 | 仅使用 `activeTab`（最小权限），不申请 `tabs`（避免"读取浏览记录"警告） |
 
 ---
@@ -199,6 +208,10 @@ yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁
   # 查看日志
   tail -f /tmp/ytdlp-server.log
   ```
+
+### 常见问题：提示「Sign in to confirm you're not a bot」
+
+使用代理上网时出现此错误，说明 yt-dlp 没有走代理。服务器默认会自动检测 `127.0.0.1:7890`（ClashX 默认端口），如果你的代理端口不同，修改 `server.py` 顶部的 `PROXY_PORT` 即可。确保代理软件已开启。
 
 ### 常见问题：提示「已有下载任务进行中」
 
