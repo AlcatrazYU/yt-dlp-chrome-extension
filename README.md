@@ -147,8 +147,9 @@ python3 server.py
 >    /Users/yuhaoyong/yt-dlp-extension/server.py
 >    ```
 >    把它改成你自己电脑上 `server.py` 的实际路径（比如 `/Users/你的用户名/yt-dlp-chrome-extension/server.py`）
-> 3. 打开终端，依次执行：
+> 3. 打开终端，依次复制粘贴执行以下命令：
 >    ```bash
+>    cd ~/yt-dlp-chrome-extension
 >    cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
 >    launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
 >    ```
