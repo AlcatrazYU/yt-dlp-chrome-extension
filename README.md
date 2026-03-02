@@ -139,15 +139,20 @@ python3 server.py
 
 终端显示 `Server running on port 19898` 即表示启动成功，保持终端窗口打开即可。
 
-> **可选：配置开机自启**
+> **可选：配置开机自启（不想每次手动启动的话）**
 >
-> 如果不想每次手动启动，可以用 macOS 的 launchd 实现开机自动运行：
-> ```bash
-> # 先修改 plist 中的 server.py 路径为你的实际路径
-> cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
-> launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-> ```
-> 配置后每次开机服务器自动在后台启动，无需打开终端。
+> 1. 用文本编辑器打开项目中的 `com.user.ytdlp-server.plist` 文件
+> 2. 找到这一行：
+>    ```
+>    /Users/yuhaoyong/yt-dlp-extension/server.py
+>    ```
+>    把它改成你自己电脑上 `server.py` 的实际路径（比如 `/Users/你的用户名/yt-dlp-chrome-extension/server.py`）
+> 3. 打开终端，依次执行：
+>    ```bash
+>    cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
+>    launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+>    ```
+> 4. 配置完成，以后每次开机服务器自动在后台运行，不需要再手动启动
 
 ### 第四步：授权 Cookie 读取（仅首次）
 
