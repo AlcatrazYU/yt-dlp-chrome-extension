@@ -108,72 +108,84 @@ yt-dlp（读取 Safari Cookie → 请求 YouTube）
 ### 环境要求
 
 - macOS（依赖 Safari Cookie 读取）
-- Python 3.10+（推荐通过 Homebrew 安装）
-- yt-dlp（`brew install yt-dlp`）
+- [Homebrew](https://brew.sh/)
 - Google Chrome
+- Safari 中保持 YouTube 登录状态
 
-### 第一步：加载 Chrome 扩展（仅首次）
+### 第一步：安装依赖（仅首次）
+
+```bash
+# 安装 Python（如未安装）
+brew install python
+
+# 安装 yt-dlp
+brew install yt-dlp
+```
+
+### 第二步：下载项目
+
+```bash
+git clone https://github.com/AlcatrazYU/yt-dlp-chrome-extension.git
+cd yt-dlp-chrome-extension
+```
+
+或者直接在 [GitHub 页面](https://github.com/AlcatrazYU/yt-dlp-chrome-extension) 点击 **Code → Download ZIP** 解压。
+
+### 第三步：配置开机自启（仅首次）
+
+将 plist 文件复制到 launchd 目录并加载，服务器会在每次登录 Mac 后自动在后台启动：
+
+```bash
+cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+```
+
+> **注意**：plist 中的 `server.py` 路径默认为 `/Users/yuhaoyong/yt-dlp-extension/server.py`，如果你的项目路径不同，需先用文本编辑器修改 plist 文件中的路径。
+
+### 第四步：授权 Cookie 读取（仅首次）
+
+yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁盘访问权限：
+
+1. 「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
+2. 点击 **`+`**，按 **`⌘ Shift G`**，粘贴路径：
+   ```
+   /opt/homebrew/Cellar/python@3.14/
+   ```
+   进入 `bin` 文件夹，选中 **`python3.14`**，点打开
+3. 确认开关已开启
+
+> **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。Python 版本号请以你实际安装的版本为准。
+
+### 第五步：加载 Chrome 扩展（仅首次）
 
 1. 打开 Chrome，访问 `chrome://extensions/`
 2. 右上角开启**开发者模式**
 3. 点击**加载已解压的扩展程序**
-4. 选择本项目根目录（包含 `manifest.json` 的文件夹）
+4. 选择项目文件夹（包含 `manifest.json` 的那个目录）
 
-### 第二步：下载视频（日常使用）
+### 日常使用
 
-服务器通过 launchd 开机自动启动，**无需手动开终端**，登录 Mac 后直接使用：
+以上步骤配置完成后，以后开机即可直接使用，无需打开终端：
 
-1. 在 Chrome 中打开任意 YouTube 视频（`youtube.com/watch?v=...`）
+1. 在 Chrome 中打开任意 YouTube 视频
 2. 点击工具栏中的扩展图标
 3. 等待视频信息加载（首次约 5–15 秒，缓存后秒开）
 4. 选择画质，勾选需要的字幕语言
 5. 点击**下载**，文件自动保存到桌面
 
-### 手动控制服务器
-
-通常不需要手动操作。如有需要：
-
-```bash
-# 停止
-launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-
-# 启动
-launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-
-# 查看日志
-tail -f /tmp/ytdlp-server.log
-```
-
 ### 注意事项
 
 - 字幕文件（`.srt`）与视频文件同名保存在桌面，IINA / VLC 可自动加载
 - 视频使用 `mp4` 容器输出；若音视频格式不兼容，yt-dlp 会自动调用 ffmpeg 合并
-
-### 常见问题：Safari Cookie 访问被拒绝
-
-若出现以下错误：
-
-```
-ERROR: [Errno 1] Operation not permitted: '.../Safari/.../Cookies.binarycookies'
-```
-
-原因是 macOS 隐私机制阻止 Python 读取 Safari 的 Cookie 文件。需手动授权：
-
-1. 「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
-2. 点击 **`+`**，按 **`⌘ Shift G`**，粘贴路径：
-   ```
-   /opt/homebrew/Cellar/python@3.14/3.14.3_1/bin
-   ```
-3. 选中 **`python3.14`**，点打开，确认开关已开启
-
-> **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。
-
-授权后重启服务生效：
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-launchctl load  ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-```
+- 如需手动控制服务器：
+  ```bash
+  # 停止
+  launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+  # 启动
+  launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
+  # 查看日志
+  tail -f /tmp/ytdlp-server.log
+  ```
 
 ### 常见问题：提示「已有下载任务进行中」
 
@@ -238,17 +250,3 @@ TubeGet 对 yt-dlp 二进制做了加密混淆（文件名改为 `ytdlpgz`，内
 └── popup.js                       # 弹窗交互逻辑
 ```
 
-### 启用开机自启
-
-将 plist 文件复制到 launchd 目录并加载：
-
-```bash
-cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-```
-
-取消自启：
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-```
