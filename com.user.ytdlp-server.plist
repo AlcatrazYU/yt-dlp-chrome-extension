@@ -11,6 +11,15 @@
         <string>/Users/yuhaoyong/yt-dlp-extension/server.py</string>
     </array>
 
+    <!-- 环境变量（launchd 默认环境极简，需手动补充） -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/yuhaoyong</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
     <!-- 登录时自动启动 -->
     <key>RunAtLoad</key>
     <true/>
