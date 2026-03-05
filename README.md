@@ -78,6 +78,14 @@ brew install yt-dlp
 - 服务器每次调用 yt-dlp 前自动探测本地代理端口（默认 `127.0.0.1:7890`），可用则自动加上 `--proxy` 参数
 - 代理关闭时自动回退为直连，无需重启服务器或手动修改配置
 
+### v1.6 — launchd 环境变量修复
+**问题**：`brew upgrade yt-dlp` 更新到 2026.3.3 后，通过 launchd 自启的服务器调用 yt-dlp 报「Requested format is not available」错误，但手动运行 `python3 server.py` 一切正常。
+
+**根本原因**：launchd 启动的进程环境变量极简，缺少 `HOME` 和 `PATH`，导致 yt-dlp 新版本无法正确定位依赖和配置。
+
+**修复内容**：
+- plist 文件中新增 `EnvironmentVariables`，显式设置 `HOME` 和 `PATH`
+
 ---
 
 ## 技术要点
