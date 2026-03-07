@@ -1,235 +1,237 @@
-# yt-dlp Chrome 扩展下载器
+[中文版说明](README_CN.md)
 
-个人自用的 YouTube 视频下载工具，由 Chrome 浏览器扩展 + 本地 Python 服务器两部分组成。
+# yt-dlp Chrome Extension Downloader
 
----
-
-## 主要功能
-
-- 在 YouTube 视频页面一键唤出下载面板
-- 自由选择视频画质（最佳画质 / 4K / 1080p / 720p / 480p / 360p / 仅音频）
-- 支持同时下载字幕（自动字幕 / 手动字幕），常用语言优先显示，可展开全部 150+ 种语言
-- 自动识别并净化 YouTube 链接（剥除播放列表、追踪参数等，防止误判），支持从收藏夹、推荐列表等任意位置复制的长链接
-- 视频信息本地缓存（10 分钟内重复打开同一视频秒速响应）
-- 下载任务在后台异步执行，弹窗实时显示进度
-- 文件默认保存至桌面（`~/Desktop`）
-- 自动检测本地代理（如 ClashX），代理开启时自动走代理，关闭时直连，无需手动切换
+A personal YouTube video download tool consisting of a Chrome browser extension and a local Python server.
 
 ---
 
-## 核心依赖：yt-dlp
+## Features
 
-本项目底层调用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 完成实际的视频下载工作。
+- One-click download panel on any YouTube video page
+- Quality selection (Best / 4K / 1080p / 720p / 480p / 360p / Audio only)
+- Subtitle download support (auto-generated & manual), with popular languages shown first and 150+ languages available
+- Automatic YouTube URL sanitization — strips playlist, tracking, and recommendation parameters to prevent misidentification
+- Local caching of video metadata (instant response within 10 minutes for the same video)
+- Async background downloads with real-time progress in the popup
+- Files saved to Desktop (`~/Desktop`) by default
+- Automatic local proxy detection (e.g. ClashX) — routes through proxy when available, falls back to direct connection when not
 
-> yt-dlp 是 youtube-dl 的活跃维护分支，支持 YouTube 及数千个视频网站，提供格式选择、字幕下载、Cookie 注入等丰富功能。
+---
 
-安装方式（macOS）：
+## Core Dependency: yt-dlp
+
+This project uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) under the hood for all video downloads.
+
+> yt-dlp is an actively maintained fork of youtube-dl, supporting YouTube and thousands of other video sites with format selection, subtitle downloading, cookie injection, and more.
+
+Install on macOS:
 
 ```bash
 brew install yt-dlp
 ```
 
-本项目使用 Chrome 扩展作为操作界面，但实际下载由本地 `server.py` 调用 yt-dlp 完成。yt-dlp 通过读取 **Safari** 的 Cookie（`--cookies-from-browser safari`）向 YouTube 证明登录身份。
+The Chrome extension serves as the UI, while the actual downloading is handled by the local `server.py` calling yt-dlp. Authentication is done via **Safari** cookies (`--cookies-from-browser safari`).
 
-之所以读 Safari 而非 Chrome 的 Cookie，是因为 Chrome 在 macOS 上对 Cookie 做了系统钥匙串加密，yt-dlp 读取时会触发系统密码弹窗；而 Safari 的 Cookie 可直接访问，更稳定。
+Why Safari instead of Chrome? Chrome on macOS encrypts cookies with the system Keychain, causing yt-dlp to trigger a password prompt on every access. Safari cookies can be read directly, making the process more reliable.
 
-> **注意**：需要在 Safari 中保持 YouTube 登录状态，yt-dlp 才能获取到有效身份凭证。
-
----
-
-## 版本迭代历史
-
-### v1.0 — 基础可用
-- 确认 macOS 环境中 Python 版本混乱问题（系统内置 3.9.6 与 Homebrew 3.14.2 并存）
-- 通过 Homebrew 统一安装最新版 yt-dlp（`brew install yt-dlp`），解决旧版 403 错误
-- 命令行验证 YouTube 视频下载与字幕（`ja`、`ja-orig`）下载流程可行
-
-### v1.1 — Chrome 扩展雏形
-- 搭建本地 HTTP 服务器（`server.py`，`ThreadingHTTPServer`，端口 19898）
-- 实现 `/ping`、`/info`、`/download`、`/status` 四个接口
-- 编写 Chrome Manifest V3 扩展（`manifest.json` + `popup.html` + `popup.js`）
-- 弹窗支持：视频缩略图预览、画质下拉选择、字幕多选、下载按钮
-
-### v1.2 — 体验优化
-- 服务端引入内存缓存（TTL 10 分钟），同一视频重复打开秒速响应
-- 修复长链接加载超时问题：
-  - 新增 `clean_youtube_url()` 函数，自动剥除 `&list=`、`&pp=`、`&si=` 等参数
-  - yt-dlp 调用加入 `--no-playlist` 防止误解析播放列表
-  - 整体超时从 60 秒延长至 90 秒，并加入 `--socket-timeout 30`
-
-### v1.3 — 开机自动启动
-- 新增 launchd 配置文件（`com.user.ytdlp-server.plist`），登录 macOS 后服务器自动在后台启动，无需手动开终端运行
-- 服务器崩溃时 launchd 自动重启，日志输出至 `/tmp/ytdlp-server.log`
-- 排查并解决 macOS 隐私机制拦截 Safari Cookie 读取的问题：需在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中添加真实 Python 二进制路径（`/opt/homebrew/Cellar/python@3.14/.../python3.14`），而非符号链接
-
-### v1.4 — 播放列表误下载修复
-**问题**：在带有 `&list=RD...`（YouTube Radio Mix）参数的页面使用扩展时，yt-dlp 将其识别为播放列表，导致下载了大量无关视频；下载任务结束前再次点击下载，服务器返回「已有下载任务进行中」且无法解除。
-
-**根本原因**：`clean_youtube_url()` 只在获取视频信息（`/info`）时调用，下载（`/download`）时漏掉了，导致完整的含播放列表参数的 URL 被直接传给 yt-dlp。
-
-**修复内容**：
-- `/download` 接口同样调用 `clean_youtube_url()` 净化 URL，确保无论链接多长都只下载当前视频
-- 新增 `/reset` 接口，任务卡住时无需重启服务器，直接访问 `http://localhost:19898/reset` 即可解除锁定
-
-### v1.5 — 代理自动检测
-**问题**：通过代理（如 ClashX）访问 YouTube 时，yt-dlp 仍走直连，YouTube 检测到 Cookie 的 IP 与请求 IP 不一致，返回「Sign in to confirm you're not a bot」错误。
-
-**修复内容**：
-- 服务器每次调用 yt-dlp 前自动探测本地代理端口（默认 `127.0.0.1:7890`），可用则自动加上 `--proxy` 参数
-- 代理关闭时自动回退为直连，无需重启服务器或手动修改配置
-
-### v1.6 — launchd 环境变量修复
-**问题**：`brew upgrade yt-dlp` 更新到 2026.3.3 后，通过 launchd 自启的服务器调用 yt-dlp 报「Requested format is not available」错误，但手动运行 `python3 server.py` 一切正常。
-
-**根本原因**：launchd 启动的进程环境变量极简，缺少 `HOME` 和 `PATH`，导致 yt-dlp 新版本无法正确定位依赖和配置。
-
-**修复内容**：
-- plist 文件中新增 `EnvironmentVariables`，显式设置 `HOME` 和 `PATH`
+> **Note**: You must be logged into YouTube in Safari for yt-dlp to obtain valid credentials.
 
 ---
 
-## 技术要点
+## Version History
 
-### 架构
+### v1.0 — Initial Setup
+- Resolved Python version conflicts on macOS (system 3.9.6 vs Homebrew 3.14.2)
+- Installed latest yt-dlp via Homebrew (`brew install yt-dlp`), fixing 403 errors from the outdated version
+- Verified YouTube video and subtitle (`ja`, `ja-orig`) download workflow via CLI
+
+### v1.1 — Chrome Extension Prototype
+- Built local HTTP server (`server.py`, `ThreadingHTTPServer`, port 19898)
+- Implemented `/ping`, `/info`, `/download`, `/status` endpoints
+- Created Chrome Manifest V3 extension (`manifest.json` + `popup.html` + `popup.js`)
+- Popup features: video thumbnail preview, quality dropdown, subtitle checkboxes, download button
+
+### v1.2 — UX Improvements
+- Added server-side in-memory cache (10-minute TTL) for instant repeated access
+- Fixed long URL timeout issues:
+  - Added `clean_youtube_url()` to strip `&list=`, `&pp=`, `&si=` and other parameters
+  - Added `--no-playlist` flag to prevent playlist misidentification
+  - Increased timeout from 60s to 90s with `--socket-timeout 30`
+
+### v1.3 — Auto-Start on Login
+- Added launchd config (`com.user.ytdlp-server.plist`) for automatic server startup on macOS login
+- Auto-restart on crash, logs written to `/tmp/ytdlp-server.log`
+- Resolved macOS privacy restriction blocking Safari cookie access: requires granting Full Disk Access to the actual Python binary at `/opt/homebrew/Cellar/python@3.14/.../python3.14`, not the symlink
+
+### v1.4 — Playlist Misdownload Fix
+**Problem**: On pages with `&list=RD...` (YouTube Radio Mix) parameters, yt-dlp treated the URL as a playlist and downloaded multiple unrelated videos. The download lock could not be released while a task was in progress.
+
+**Root cause**: `clean_youtube_url()` was only called in `/info` but not in `/download`, so the full URL with playlist parameters was passed directly to yt-dlp.
+
+**Fix**:
+- Applied `clean_youtube_url()` in `/download` as well, ensuring only the current video is downloaded regardless of URL length
+- Added `/reset` endpoint — visit `http://localhost:19898/reset` to force-unlock a stuck download task
+
+### v1.5 — Automatic Proxy Detection
+**Problem**: When accessing YouTube through a proxy (e.g. ClashX), yt-dlp still connected directly. YouTube detected the IP mismatch between the cookie and the request, returning a "Sign in to confirm you're not a bot" error.
+
+**Fix**:
+- Server automatically probes the local proxy port (`127.0.0.1:7890` by default) before each yt-dlp call; if available, adds `--proxy`
+- Falls back to direct connection when proxy is off — no restart or config change needed
+
+### v1.6 — launchd Environment Fix
+**Problem**: After upgrading yt-dlp to 2026.3.3 via `brew upgrade`, the launchd-managed server started returning "Requested format is not available" errors, while running `python3 server.py` manually worked fine.
+
+**Root cause**: launchd processes run with a minimal environment, missing `HOME` and `PATH`, which the newer yt-dlp version requires to locate dependencies and configuration.
+
+**Fix**:
+- Added `EnvironmentVariables` to the plist file, explicitly setting `HOME` and `PATH`
+
+---
+
+## Technical Details
+
+### Architecture
 ```
-Chrome 扩展 (popup.js)
-      │  HTTP 请求
+Chrome Extension (popup.js)
+      │  HTTP requests
       ▼
-本地服务器 (server.py, localhost:19898)
-      │  subprocess 调用
+Local Server (server.py, localhost:19898)
+      │  subprocess calls
       ▼
-yt-dlp（读取 Safari Cookie → 请求 YouTube）
+yt-dlp (reads Safari cookies → requests YouTube)
       │
       ▼
-下载文件保存至 ~/Desktop
+Downloaded files saved to ~/Desktop
 ```
 
-### 关键技术点
+### Key Technical Points
 
-| 模块 | 技术 |
-|------|------|
-| 本地服务器 | Python `ThreadingHTTPServer`（支持并发，`/info` 请求期间 `/status` 轮询不阻塞） |
-| 跨域通信 | 服务端返回 `Access-Control-Allow-Origin: *`，扩展通过 `host_permissions` 访问 localhost |
-| YouTube 访问 | `yt-dlp --cookies-from-browser safari` 注入本机 Safari Cookie |
-| 视频信息解析 | `yt-dlp -j --no-playlist` 输出单视频 JSON，服务端解析格式列表与字幕列表 |
-| 下载进度 | 下载任务在 daemon 线程中运行，前端每 1.5 秒轮询 `/status` 接口 |
-| 信息缓存 | 服务端 `dict` + 时间戳实现 LRU-like 缓存，有效期 10 分钟 |
-| URL 净化 | `urllib.parse` 解析 URL，仅保留 `v=` 参数重新拼接，避免追踪参数干扰 |
-| 代理自适应 | 每次请求前探测 `127.0.0.1:7890`，可用则自动走代理，否则直连，适配 ClashX 等代理工具 |
-| Chrome 权限 | 仅使用 `activeTab`（最小权限），不申请 `tabs`（避免"读取浏览记录"警告） |
+| Component | Implementation |
+|-----------|---------------|
+| Local server | Python `ThreadingHTTPServer` (concurrent — `/status` polling is not blocked by `/info` requests) |
+| Cross-origin | Server returns `Access-Control-Allow-Origin: *`; extension uses `host_permissions` for localhost |
+| YouTube auth | `yt-dlp --cookies-from-browser safari` injects local Safari cookies |
+| Video info | `yt-dlp -j --no-playlist` outputs single-video JSON; server parses format and subtitle lists |
+| Download progress | Download runs in a daemon thread; popup polls `/status` every 1.5s |
+| Info caching | Server-side `dict` + timestamp, 10-minute TTL |
+| URL sanitization | `urllib.parse` extracts only the `v=` parameter, discarding tracking params |
+| Proxy detection | Probes `127.0.0.1:7890` before each request; uses proxy if available, direct otherwise (compatible with ClashX, etc.) |
+| Chrome permissions | Uses only `activeTab` (minimal permission) — avoids the "read browsing history" warning from `tabs` |
 
 ---
 
-## 使用方法
+## Setup
 
-### 环境要求
+### Requirements
 
-- macOS（依赖 Safari Cookie 读取）
+- macOS (relies on Safari cookie access)
 - [Homebrew](https://brew.sh/)
 - Google Chrome
-- Safari 中保持 YouTube 登录状态
+- YouTube logged in via Safari
 
-### 第一步：安装依赖（仅首次）
+### Step 1: Install Dependencies (one-time)
 
 ```bash
-# 安装 Python（如未安装）
+# Install Python (if not already installed)
 brew install python
 
-# 安装 yt-dlp
+# Install yt-dlp
 brew install yt-dlp
 ```
 
-### 第二步：下载项目
+### Step 2: Download the Project
 
 ```bash
 git clone https://github.com/AlcatrazYU/yt-dlp-chrome-extension.git
 cd yt-dlp-chrome-extension
 ```
 
-或者直接在 [GitHub 页面](https://github.com/AlcatrazYU/yt-dlp-chrome-extension) 点击 **Code → Download ZIP** 解压。
+Or click **Code → Download ZIP** on the [GitHub page](https://github.com/AlcatrazYU/yt-dlp-chrome-extension) and extract.
 
-### 第三步：启动服务器
+### Step 3: Start the Server
 
 ```bash
 python3 server.py
 ```
 
-终端显示 `Server running on port 19898` 即表示启动成功，保持终端窗口打开即可。
+You should see `Server running on port 19898` in the terminal. Keep the terminal window open.
 
-> **可选：配置开机自启（不想每次手动启动的话）**
+> **Optional: Auto-start on login (so you don't have to start it manually each time)**
 >
-> 1. 用文本编辑器打开项目中的 `com.user.ytdlp-server.plist` 文件
-> 2. 找到这一行：
+> 1. Open `com.user.ytdlp-server.plist` in a text editor
+> 2. Find this line:
 >    ```
 >    /Users/yuhaoyong/yt-dlp-extension/server.py
 >    ```
->    把它改成你自己电脑上 `server.py` 的实际路径（比如 `/Users/你的用户名/yt-dlp-chrome-extension/server.py`）
-> 3. 打开终端，复制粘贴执行：
+>    Replace it with the actual path to `server.py` on your machine (e.g. `/Users/yourname/yt-dlp-chrome-extension/server.py`)
+> 3. Open Terminal and run:
 >    ```bash
 >    cd ~/yt-dlp-chrome-extension
 >    cp com.user.ytdlp-server.plist ~/Library/LaunchAgents/
 >    launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
 >    ```
-> 4. 配置完成，以后每次开机服务器自动在后台运行，不需要再手动启动
+> 4. Done — the server will now start automatically in the background on every login
 
-### 第四步：授权 Cookie 读取（仅首次）
+### Step 4: Grant Cookie Access (one-time)
 
-yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁盘访问权限：
+yt-dlp needs to read Safari cookies to authenticate with YouTube. Grant Python Full Disk Access:
 
-1. 「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
-2. 点击 **`+`**，按 **`⌘ Shift G`**，粘贴路径：
+1. Open **System Settings → Privacy & Security → Full Disk Access**
+2. Click **`+`**, press **`⌘ Shift G`**, and paste:
    ```
    /opt/homebrew/Cellar/python@3.14/
    ```
-   进入 `bin` 文件夹，选中 **`python3.14`**，点打开
-3. 确认开关已开启
+   Navigate into the `bin` folder, select **`python3.14`**, and click Open
+3. Make sure the toggle is enabled
 
-> **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。Python 版本号请以你实际安装的版本为准。
+> **Note**: `/opt/homebrew/bin/python3` is a symlink. macOS permission system requires the actual binary under Cellar. Adjust the Python version number to match your installation.
 
-### 第五步：加载 Chrome 扩展（仅首次）
+### Step 5: Load the Chrome Extension (one-time)
 
-1. 打开 Chrome，访问 `chrome://extensions/`
-2. 右上角开启**开发者模式**
-3. 点击**加载已解压的扩展程序**
-4. 选择项目文件夹（包含 `manifest.json` 的那个目录）
+1. Open Chrome and go to `chrome://extensions/`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked**
+4. Select the project folder (the one containing `manifest.json`)
 
-### 日常使用
+### Daily Usage
 
-以上步骤配置完成后，确保服务器正在运行（手动启动或已配置自启），即可使用：
+Once the above steps are complete, just make sure the server is running (manually or via auto-start):
 
-1. 在 Chrome 中打开任意 YouTube 视频
-2. 点击工具栏中的扩展图标
-3. 等待视频信息加载（首次约 5–15 秒，缓存后秒开）
-4. 选择画质，勾选需要的字幕语言
-5. 点击**下载**，文件自动保存到桌面
+1. Open any YouTube video in Chrome
+2. Click the extension icon in the toolbar
+3. Wait for video info to load (5–15 seconds first time, instant from cache)
+4. Select quality, check subtitle languages
+5. Click **Download** — file is saved to your Desktop
 
-### 注意事项
+### Notes
 
-- 字幕文件（`.srt`）与视频文件同名保存在桌面，IINA / VLC 可自动加载
-- 视频使用 `mp4` 容器输出；若音视频格式不兼容，yt-dlp 会自动调用 ffmpeg 合并
-- 如需手动控制服务器：
+- Subtitle files (`.srt`) are saved alongside the video with matching filenames; IINA / VLC will auto-load them
+- Videos are output in `mp4` container; if formats are incompatible, yt-dlp will automatically invoke ffmpeg to merge
+- To manually control the server:
   ```bash
-  # 停止
+  # Stop
   launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-  # 启动
+  # Start
   launchctl load ~/Library/LaunchAgents/com.user.ytdlp-server.plist
-  # 查看日志
+  # View logs
   tail -f /tmp/ytdlp-server.log
   ```
 
-### 常见问题：提示「Sign in to confirm you're not a bot」
+### Troubleshooting: "Sign in to confirm you're not a bot"
 
-使用代理上网时出现此错误，说明 yt-dlp 没有走代理。服务器默认会自动检测 `127.0.0.1:7890`（ClashX 默认端口），如果你的代理端口不同，修改 `server.py` 顶部的 `PROXY_PORT` 即可。确保代理软件已开启。
+This error occurs when using a proxy but yt-dlp is not routing through it. The server automatically detects `127.0.0.1:7890` (ClashX default port). If your proxy uses a different port, edit `PROXY_PORT` at the top of `server.py`. Make sure your proxy software is running.
 
-### 常见问题：提示「已有下载任务进行中」
+### Troubleshooting: "Download task already in progress"
 
-若扩展弹窗一直显示该提示无法提交新任务，在浏览器访问以下地址强制解锁：
+If the popup keeps showing this message, visit the following URL in your browser to force-unlock:
 
 ```
 http://localhost:19898/reset
 ```
 
-看到 `{"ok": true}` 即恢复正常。若 `/reset` 返回 `{"error": "Not found"}`，说明服务器运行的是旧版代码，需重启服务：
+You should see `{"ok": true}`. If you get `{"error": "Not found"}` instead, the server is running an older version of the code — restart the service:
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.user.ytdlp-server.plist
@@ -238,49 +240,48 @@ launchctl load  ~/Library/LaunchAgents/com.user.ytdlp-server.plist
 
 ---
 
-## 附：与同类付费软件的对比分析
+## Appendix: Comparison with a Paid Alternative
 
-本机安装有 **Gihosoft TubeGet**（一款付费 YouTube 下载软件），通过解包其 `.app` 内容，发现其核心技术与本项目几乎完全相同。
+**Gihosoft TubeGet** is a paid YouTube download application. Upon inspecting its `.app` bundle, its core technology turns out to be nearly identical to this project.
 
-### TubeGet 内部文件结构
+### TubeGet Internal File Structure
 
 ```
 Gihosoft TubeGet.app/Contents/MacOS/
-├── ytdlpgz          ← 21MB，经过加密混淆的 yt-dlp 二进制
-├── ffmpeg           ← ffmpeg 8.0（开源）
-├── deno             ← Deno 2.5.4（开源 JS 运行时）
-├── libcookies.dylib ← 读取浏览器 Cookie 的动态库
+├── ytdlpgz          ← 21MB, obfuscated yt-dlp binary
+├── ffmpeg           ← ffmpeg 8.0 (open source)
+├── deno             ← Deno 2.5.4 (open source JS runtime)
+├── libcookies.dylib ← dynamic library for reading browser cookies
 └── data/
-    ├── chrome-plugin.zip     ← 内置 Chrome 扩展
+    ├── chrome-plugin.zip     ← bundled Chrome extension
     └── chrome-plugin-en.zip
 ```
 
-### 技术对比
+### Technical Comparison
 
-| 组件 | Gihosoft TubeGet | 本项目 |
-|------|-----------------|--------|
-| 核心下载引擎 | `ytdlpgz`（混淆过的 yt-dlp） | yt-dlp（Homebrew 最新版） |
-| 音视频合并 | 内置 ffmpeg | 系统 ffmpeg |
-| JS 运行时 | 内置 Deno | — |
-| Cookie 读取 | `libcookies.dylib` | `--cookies-from-browser safari` |
-| 操作界面 | Qt 桌面 GUI | Chrome 扩展弹窗 |
+| Component | Gihosoft TubeGet | This Project |
+|-----------|-----------------|--------------|
+| Download engine | `ytdlpgz` (obfuscated yt-dlp) | yt-dlp (latest via Homebrew) |
+| Audio/video merging | Bundled ffmpeg | System ffmpeg |
+| JS runtime | Bundled Deno | — |
+| Cookie access | `libcookies.dylib` | `--cookies-from-browser safari` |
+| UI | Qt desktop GUI | Chrome extension popup |
 
-### 为何 TubeGet 更容易下载失败？
+### Why TubeGet Fails More Often
 
-TubeGet 将 yt-dlp 以固定版本打包进安装包，必须等厂商发布新版才能更新；而本项目通过 Homebrew 管理 yt-dlp，执行 `brew upgrade yt-dlp` 即可跟进最新版本，响应 YouTube 的规则变化更及时。
+TubeGet ships a fixed version of yt-dlp in its installer and can only update when the vendor releases a new build. This project uses Homebrew to manage yt-dlp — a simple `brew upgrade yt-dlp` keeps it up to date with YouTube's latest changes.
 
-TubeGet 对 yt-dlp 二进制做了加密混淆（文件名改为 `ytdlpgz`，内容不可读），可能是为了隐藏其底层依赖开源免费工具这一事实。yt-dlp 本身以 [The Unlicense](https://unlicense.org/) 授权，允许任意商业使用，但这种做法在透明度上存在争议。
+TubeGet obfuscates its yt-dlp binary (renamed to `ytdlpgz`, contents unreadable), likely to obscure its reliance on free, open-source tools. While yt-dlp's [Unlicense](https://unlicense.org/) permits any commercial use, the lack of attribution raises transparency concerns.
 
 ---
 
-## 文件结构
+## File Structure
 
 ```
 .
-├── server.py                      # 本地 HTTP 服务器（核心后端）
-├── com.user.ytdlp-server.plist    # launchd 配置，开机自动启动服务器
-├── manifest.json                  # Chrome 扩展清单（Manifest V3）
-├── popup.html                     # 扩展弹窗 UI（含 CSS）
-└── popup.js                       # 弹窗交互逻辑
+├── server.py                      # Local HTTP server (core backend)
+├── com.user.ytdlp-server.plist    # launchd config for auto-start on login
+├── manifest.json                  # Chrome extension manifest (Manifest V3)
+├── popup.html                     # Extension popup UI (with CSS)
+└── popup.js                       # Popup interaction logic
 ```
-
