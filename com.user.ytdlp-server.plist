@@ -18,6 +18,10 @@
         <string>/Users/yuhaoyong</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>YTDLP_COOKIE_SOURCES</key>
+        <string>chrome,safari</string>
+        <key>YT_DLP_BIN</key>
+        <string>/opt/homebrew/bin/yt-dlp</string>
     </dict>
 
     <!-- 登录时自动启动 -->

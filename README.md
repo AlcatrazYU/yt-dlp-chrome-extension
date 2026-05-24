@@ -16,6 +16,7 @@ A personal YouTube video download tool consisting of a Chrome browser extension 
 - Async background downloads with real-time progress in the popup
 - Files saved to Desktop (`~/Desktop`) by default
 - Automatic local proxy detection (e.g. ClashX) — routes through proxy when available, falls back to direct connection when not
+- Uses cookies from the current Chrome profile first, avoiding the wrong browser or wrong Chrome profile
 
 ---
 
@@ -31,11 +32,11 @@ Install on macOS:
 brew install yt-dlp
 ```
 
-The Chrome extension serves as the UI, while the actual downloading is handled by the local `server.py` calling yt-dlp. Authentication is done via **Safari** cookies (`--cookies-from-browser safari`).
+The Chrome extension serves as the UI, while the actual downloading is handled by the local `server.py` calling yt-dlp. The extension first sends YouTube/Google cookies from the current Chrome profile to the local server, which writes them to a temporary yt-dlp cookie file. If no extension cookies are provided, the server falls back to reading local browser cookies in the configured order. The server default is **Safari → Chrome**; the launchd auto-start config prefers **Chrome → Safari**.
 
-Why Safari instead of Chrome? Chrome on macOS encrypts cookies with the system Keychain, causing yt-dlp to trigger a password prompt on every access. Safari cookies can be read directly, making the process more reliable.
+Earlier versions used Safari only because Chrome cookies on macOS are protected by the system Keychain. The server now supports fallback and explicit configuration via `YTDLP_COOKIE_SOURCES=chrome`, or profile-specific values such as `YTDLP_COOKIE_SOURCES=chrome:Profile 1,safari`.
 
-> **Note**: You must be logged into YouTube in Safari for yt-dlp to obtain valid credentials.
+> **Note**: You must be logged into YouTube in at least one configured browser profile for yt-dlp to obtain valid credentials.
 
 ---
 
@@ -88,6 +89,18 @@ Why Safari instead of Chrome? Chrome on macOS encrypts cookies with the system K
 **Fix**:
 - Added `EnvironmentVariables` to the plist file, explicitly setting `HOME` and `PATH`
 
+### v1.7 — Cookie Source Fallback
+**Problem**: Even when the video was opened from Chrome, the backend still read Safari cookies. If macOS blocked access to Safari's cookie file, the popup showed `Operation not permitted: ... Cookies.binarycookies`.
+
+**Root cause**: The Chrome extension only sends the current URL to the local server. Cookie extraction happens inside `server.py`, and older versions hard-coded `--cookies-from-browser safari`.
+
+**Fix**:
+- Added `YTDLP_COOKIE_SOURCES` for ordered cookie sources such as `safari,chrome`, `chrome,safari`, `chrome:Default`, `chrome:Profile 1`, and `none`
+- Added the Chrome `cookies` permission so the extension can pass cookies from the current Chrome profile to the local server before server-side fallback
+- `/info` and `/download` automatically try the next cookie source for cookie, login, and permission-related failures
+- The launchd config now sets `YTDLP_COOKIE_SOURCES=chrome,safari` so this machine prefers Chrome cookies
+- `/ping` returns the server version and configured cookie sources for quick runtime checks
+
 ---
 
 ## Technical Details
@@ -95,12 +108,12 @@ Why Safari instead of Chrome? Chrome on macOS encrypts cookies with the system K
 ### Architecture
 ```
 Chrome Extension (popup.js)
-      │  HTTP requests
+      │  HTTP requests (URL + current Chrome profile cookies)
       ▼
 Local Server (server.py, localhost:19898)
       │  subprocess calls
       ▼
-yt-dlp (reads Safari cookies → requests YouTube)
+yt-dlp (uses extension cookies first, then Safari / Chrome fallback → requests YouTube)
       │
       ▼
 Downloaded files saved to ~/Desktop
@@ -112,24 +125,48 @@ Downloaded files saved to ~/Desktop
 |-----------|---------------|
 | Local server | Python `ThreadingHTTPServer` (concurrent — `/status` polling is not blocked by `/info` requests) |
 | Cross-origin | Server returns `Access-Control-Allow-Origin: *`; extension uses `host_permissions` for localhost |
-| YouTube auth | `yt-dlp --cookies-from-browser safari` injects local Safari cookies |
+| YouTube auth | Uses cookies passed by the extension first; then ordered `yt-dlp --cookies-from-browser ...` sources via `YTDLP_COOKIE_SOURCES` |
 | Video info | `yt-dlp -j --no-playlist` outputs single-video JSON; server parses format and subtitle lists |
 | Download progress | Download runs in a daemon thread; popup polls `/status` every 1.5s |
 | Info caching | Server-side `dict` + timestamp, 10-minute TTL |
 | URL sanitization | `urllib.parse` extracts only the `v=` parameter, discarding tracking params |
 | Proxy detection | Probes `127.0.0.1:7890` before each request; uses proxy if available, direct otherwise (compatible with ClashX, etc.) |
-| Chrome permissions | Uses only `activeTab` (minimal permission) — avoids the "read browsing history" warning from `tabs` |
+| Chrome permissions | Uses `activeTab` for the current URL and `cookies` for YouTube/Google cookies; still does not request `tabs` |
 
 ---
 
 ## Setup
 
+### Recommended: One-command local install
+
+```bash
+git clone https://github.com/AlcatrazYU/yt-dlp-chrome-extension.git
+cd yt-dlp-chrome-extension
+./install.sh
+```
+
+The installer:
+- installs missing Homebrew dependencies (`python`, `yt-dlp`, `ffmpeg`)
+- creates `~/Library/LaunchAgents/com.user.ytdlp-server.plist`
+- starts the local server immediately and automatically after every login
+- opens `chrome://extensions/` for the one-time extension load step
+
+Chrome does not allow scripts to silently install an unpacked extension for normal users. The only manual step is loading `extension/` once in Chrome and accepting the cookie permission prompt. After that, open any YouTube video in Chrome and click the extension icon; the local server is already running after boot.
+
+To remove the local server:
+
+```bash
+./uninstall.sh
+```
+
+### Manual Setup
+
 ### Requirements
 
-- macOS (relies on Safari cookie access)
+- macOS (relies on local browser cookie access)
 - [Homebrew](https://brew.sh/)
 - Google Chrome
-- YouTube logged in via Safari
+- YouTube logged in via Safari or Chrome
 
 ### Step 1: Install Dependencies (one-time)
 
@@ -176,7 +213,7 @@ You should see `Server running on port 19898` in the terminal. Keep the terminal
 
 ### Step 4: Grant Cookie Access (one-time)
 
-yt-dlp needs to read Safari cookies to authenticate with YouTube. Grant Python Full Disk Access:
+If you use Safari cookies, yt-dlp needs access to Safari's protected cookie file. Grant Python Full Disk Access:
 
 1. Open **System Settings → Privacy & Security → Full Disk Access**
 2. Click **`+`**, press **`⌘ Shift G`**, and paste:
@@ -188,6 +225,15 @@ yt-dlp needs to read Safari cookies to authenticate with YouTube. Grant Python F
 
 > **Note**: `/opt/homebrew/bin/python3` is a symlink. macOS permission system requires the actual binary under Cellar. Adjust the Python version number to match your installation.
 
+To use Chrome cookies instead, set this in `com.user.ytdlp-server.plist` under `EnvironmentVariables`:
+
+```xml
+<key>YTDLP_COOKIE_SOURCES</key>
+<string>chrome,safari</string>
+```
+
+For multiple Chrome profiles, use the exact profile name, e.g. `chrome:Default` or `chrome:Profile 1`.
+
 ### Step 5: Load the Chrome Extension (one-time)
 
 1. Open Chrome and go to `chrome://extensions/`
@@ -195,9 +241,11 @@ yt-dlp needs to read Safari cookies to authenticate with YouTube. Grant Python F
 3. Click **Load unpacked**
 4. Select the project folder (the one containing `manifest.json`)
 
+> If you already loaded an older version, click the reload button for this extension in `chrome://extensions/`; Chrome will prompt for the new cookie permission.
+
 ### Daily Usage
 
-Once the above steps are complete, just make sure the server is running (manually or via auto-start):
+Once the above steps are complete, the server starts automatically after login:
 
 1. Open any YouTube video in Chrome
 2. Click the extension icon in the toolbar

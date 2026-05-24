@@ -16,6 +16,7 @@
 - 下载任务在后台异步执行，弹窗实时显示进度
 - 文件默认保存至桌面（`~/Desktop`）
 - 自动检测本地代理（如 ClashX），代理开启时自动走代理，关闭时直连，无需手动切换
+- 优先使用当前 Chrome Profile 的 YouTube/Google Cookie，避免误读其它浏览器或其它 Chrome Profile
 
 ---
 
@@ -31,11 +32,11 @@
 brew install yt-dlp
 ```
 
-本项目使用 Chrome 扩展作为操作界面，但实际下载由本地 `server.py` 调用 yt-dlp 完成。yt-dlp 通过读取 **Safari** 的 Cookie（`--cookies-from-browser safari`）向 YouTube 证明登录身份。
+本项目使用 Chrome 扩展作为操作界面，但实际下载由本地 `server.py` 调用 yt-dlp 完成。扩展会优先把当前 Chrome Profile 的 YouTube/Google Cookie 发送给本地服务器，服务器临时转成 yt-dlp 可读的 cookie 文件；如果扩展没有传 Cookie，服务器再按配置读取本机浏览器 Cookie。服务器默认顺序为 **Safari → Chrome**；launchd 自启动配置中会优先使用 **Chrome → Safari**。
 
-之所以读 Safari 而非 Chrome 的 Cookie，是因为 Chrome 在 macOS 上对 Cookie 做了系统钥匙串加密，yt-dlp 读取时会触发系统密码弹窗；而 Safari 的 Cookie 可直接访问，更稳定。
+早期版本固定读取 Safari Cookie，是为了避开 Chrome 在 macOS 上的系统钥匙串加密；现在已支持自动回退和环境变量配置，可用 `YTDLP_COOKIE_SOURCES=chrome` 强制只用 Chrome，或用 `YTDLP_COOKIE_SOURCES=chrome:Profile 1,safari` 指定 Chrome Profile。
 
-> **注意**：需要在 Safari 中保持 YouTube 登录状态，yt-dlp 才能获取到有效身份凭证。
+> **注意**：至少需要在配置顺序中的某个浏览器 Profile 里保持 YouTube 登录状态，yt-dlp 才能获取到有效身份凭证。
 
 ---
 
@@ -88,6 +89,18 @@ brew install yt-dlp
 **修复内容**：
 - plist 文件中新增 `EnvironmentVariables`，显式设置 `HOME` 和 `PATH`
 
+### v1.7 — Cookie 来源自动回退
+**问题**：从 Chrome 打开视频时，后端仍固定读取 Safari Cookie；若 macOS 拦截 Safari Cookie 文件访问，会在扩展里显示 `Operation not permitted: ... Cookies.binarycookies`。
+
+**根本原因**：Chrome 扩展只把当前页面 URL 发给本地服务器，真正的 Cookie 读取发生在 `server.py` 的 yt-dlp 调用中；旧版本写死了 `--cookies-from-browser safari`。
+
+**修复内容**：
+- 新增 `YTDLP_COOKIE_SOURCES` 环境变量，支持 `safari,chrome`、`chrome,safari`、`chrome:Default`、`chrome:Profile 1`、`none` 等来源配置
+- Chrome 扩展新增 `cookies` 权限，优先把当前 Chrome Profile 的 YouTube/Google Cookie 传给本地服务器，避免后端猜错 Profile
+- `/info` 和 `/download` 在 Cookie/登录/权限类错误时自动尝试下一个 Cookie 来源
+- launchd 配置默认设为 `YTDLP_COOKIE_SOURCES=chrome,safari`，当前机器优先使用 Chrome Cookie
+- `/ping` 返回服务版本和 Cookie 来源，便于确认当前运行的是否为新版服务
+
 ---
 
 ## 技术要点
@@ -95,12 +108,12 @@ brew install yt-dlp
 ### 架构
 ```
 Chrome 扩展 (popup.js)
-      │  HTTP 请求
+      │  HTTP 请求（URL + 当前 Chrome Profile Cookie）
       ▼
 本地服务器 (server.py, localhost:19898)
       │  subprocess 调用
       ▼
-yt-dlp（读取 Safari Cookie → 请求 YouTube）
+yt-dlp（优先使用扩展传入 Cookie，失败后按配置读取 Safari / Chrome Cookie → 请求 YouTube）
       │
       ▼
 下载文件保存至 ~/Desktop
@@ -112,24 +125,48 @@ yt-dlp（读取 Safari Cookie → 请求 YouTube）
 |------|------|
 | 本地服务器 | Python `ThreadingHTTPServer`（支持并发，`/info` 请求期间 `/status` 轮询不阻塞） |
 | 跨域通信 | 服务端返回 `Access-Control-Allow-Origin: *`，扩展通过 `host_permissions` 访问 localhost |
-| YouTube 访问 | `yt-dlp --cookies-from-browser safari` 注入本机 Safari Cookie |
+| YouTube 访问 | 优先使用扩展传入的当前 Chrome Profile Cookie；失败后按 `YTDLP_COOKIE_SOURCES` 调用 `yt-dlp --cookies-from-browser ...` |
 | 视频信息解析 | `yt-dlp -j --no-playlist` 输出单视频 JSON，服务端解析格式列表与字幕列表 |
 | 下载进度 | 下载任务在 daemon 线程中运行，前端每 1.5 秒轮询 `/status` 接口 |
 | 信息缓存 | 服务端 `dict` + 时间戳实现 LRU-like 缓存，有效期 10 分钟 |
 | URL 净化 | `urllib.parse` 解析 URL，仅保留 `v=` 参数重新拼接，避免追踪参数干扰 |
 | 代理自适应 | 每次请求前探测 `127.0.0.1:7890`，可用则自动走代理，否则直连，适配 ClashX 等代理工具 |
-| Chrome 权限 | 仅使用 `activeTab`（最小权限），不申请 `tabs`（避免"读取浏览记录"警告） |
+| Chrome 权限 | 使用 `activeTab` 获取当前标签 URL，使用 `cookies` 读取 YouTube/Google Cookie；不申请 `tabs` 权限 |
 
 ---
 
 ## 使用方法
 
+### 推荐：一条命令安装本地服务
+
+```bash
+git clone https://github.com/AlcatrazYU/yt-dlp-chrome-extension.git
+cd yt-dlp-chrome-extension
+./install.sh
+```
+
+安装脚本会自动完成：
+- 安装缺失的 Homebrew 依赖（`python`、`yt-dlp`、`ffmpeg`）
+- 写入 `~/Library/LaunchAgents/com.user.ytdlp-server.plist`
+- 立即启动本地服务器，并配置为每次登录 macOS 后自动启动
+- 打开 `chrome://extensions/`，方便你完成一次性的扩展加载
+
+Chrome 不允许普通脚本静默安装“未打包扩展”。唯一的手动步骤是在 Chrome 中加载一次 `extension/` 目录，并接受 Cookie 权限提示。之后就不需要再管 server：开机登录后它会自动运行，在 Chrome 打开 YouTube 视频后直接点扩展图标即可下载。
+
+如需移除本地服务：
+
+```bash
+./uninstall.sh
+```
+
+### 手动安装
+
 ### 环境要求
 
-- macOS（依赖 Safari Cookie 读取）
+- macOS（依赖本机浏览器 Cookie 读取）
 - [Homebrew](https://brew.sh/)
 - Google Chrome
-- Safari 中保持 YouTube 登录状态
+- Safari 或 Chrome 中保持 YouTube 登录状态
 
 ### 第一步：安装依赖（仅首次）
 
@@ -176,7 +213,7 @@ python3 server.py
 
 ### 第四步：授权 Cookie 读取（仅首次）
 
-yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁盘访问权限：
+如果使用 Safari Cookie，yt-dlp 需要读取 Safari 的受保护 Cookie 文件，需授予 Python 完全磁盘访问权限：
 
 1. 「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
 2. 点击 **`+`**，按 **`⌘ Shift G`**，粘贴路径：
@@ -188,6 +225,15 @@ yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁
 
 > **注意**：`/opt/homebrew/bin/python3` 是符号链接，macOS 权限系统认的是真实路径，需添加 Cellar 下的实际二进制文件。Python 版本号请以你实际安装的版本为准。
 
+如果只想使用 Chrome Cookie，可在 `com.user.ytdlp-server.plist` 的 `EnvironmentVariables` 中设置：
+
+```xml
+<key>YTDLP_COOKIE_SOURCES</key>
+<string>chrome,safari</string>
+```
+
+Chrome 有多个 Profile 时，可改为 `chrome:Default`、`chrome:Profile 1` 等具体 Profile 名称。
+
 ### 第五步：加载 Chrome 扩展（仅首次）
 
 1. 打开 Chrome，访问 `chrome://extensions/`
@@ -195,9 +241,11 @@ yt-dlp 需要读取 Safari Cookie 来访问 YouTube，需授予 Python 完全磁
 3. 点击**加载已解压的扩展程序**
 4. 选择项目文件夹（包含 `manifest.json` 的那个目录）
 
+> 如果之前已经加载过旧版扩展，修改 `manifest.json` 后需要在 `chrome://extensions/` 点击该扩展的刷新按钮；Chrome 会提示新增 Cookie 权限。
+
 ### 日常使用
 
-以上步骤配置完成后，确保服务器正在运行（手动启动或已配置自启），即可使用：
+以上步骤配置完成后，服务器会在登录 macOS 后自动启动，日常只需要：
 
 1. 在 Chrome 中打开任意 YouTube 视频
 2. 点击工具栏中的扩展图标
@@ -285,4 +333,3 @@ TubeGet 对 yt-dlp 二进制做了加密混淆（文件名改为 `ytdlpgz`，内
 ├── popup.html                     # 扩展弹窗 UI（含 CSS）
 └── popup.js                       # 弹窗交互逻辑
 ```
-

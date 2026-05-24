@@ -11,6 +11,7 @@ let showAllSubs  = false
 let pollTimer    = null
 
 const root = document.getElementById('root')
+const COOKIE_DOMAINS = ['youtube.com', 'google.com']
 
 // ── DOM 辅助函数 ──────────────────────────────────────────────
 function h(tag, attrs, ...children) {
@@ -49,6 +50,34 @@ function showError(icon, title, detail, extra) {
     h('div', {class: 'error-detail'}, detail),
     extra || null
   ))
+}
+
+async function collectBrowserCookies() {
+  if (!chrome.cookies) return []
+
+  const seen = new Map()
+  for (const domain of COOKIE_DOMAINS) {
+    let cookies = []
+    try {
+      cookies = await chrome.cookies.getAll({domain})
+    } catch {
+      continue
+    }
+    for (const c of cookies) {
+      const key = `${c.domain}\t${c.path}\t${c.name}`
+      seen.set(key, {
+        domain: c.domain,
+        path: c.path,
+        name: c.name,
+        value: c.value,
+        secure: c.secure,
+        httpOnly: c.httpOnly,
+        hostOnly: c.hostOnly,
+        expirationDate: c.expirationDate || 0,
+      })
+    }
+  }
+  return [...seen.values()]
 }
 
 // ── 主界面渲染 ────────────────────────────────────────────────
@@ -158,6 +187,7 @@ async function handleDownload() {
   status.textContent = '正在联系本地服务器…'
 
   try {
+    const cookies = await collectBrowserCookies()
     const res  = await fetch(`${API}/download`, {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
@@ -165,6 +195,7 @@ async function handleDownload() {
         url:       videoUrl,
         format:    fmt,
         subtitles: [...selectedSubs],
+        cookies,
       }),
     })
     const data = await res.json()
@@ -243,10 +274,13 @@ async function init() {
   showLoading('获取视频信息中…\n（首次可能需要 5–15 秒）')
 
   try {
-    const res  = await fetch(
-      `${API}/info?url=${encodeURIComponent(videoUrl)}`,
-      {signal: AbortSignal.timeout(90000)}
-    )
+    const cookies = await collectBrowserCookies()
+    const res  = await fetch(`${API}/info`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({url: videoUrl, cookies}),
+      signal:  AbortSignal.timeout(90000),
+    })
     const data = await res.json()
 
     if (data.error) {

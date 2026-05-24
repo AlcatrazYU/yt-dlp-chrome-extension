@@ -1,10 +1,14 @@
 {
   "manifest_version": 3,
   "name": "yt-dlp 下载器",
-  "version": "1.0",
+  "version": "1.7",
   "description": "下载 YouTube 视频和字幕（需要本地服务器）",
-  "permissions": ["activeTab"],
-  "host_permissions": ["http://localhost:19898/*"],
+  "permissions": ["activeTab", "cookies"],
+  "host_permissions": [
+    "http://localhost:19898/*",
+    "https://*.youtube.com/*",
+    "https://*.google.com/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "yt-dlp 下载器"
