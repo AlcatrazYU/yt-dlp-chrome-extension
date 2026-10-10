@@ -50,17 +50,43 @@ ensure_formula() {
   fi
 }
 
+# YouTube changes often and old yt-dlp versions stop working, so upgrade on every
+# install. The server also keeps it updated in the background afterwards.
+upgrade_ytdlp() {
+  echo "Upgrading yt-dlp (if a newer version exists)..."
+  if ! HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew upgrade yt-dlp; then
+    echo "WARN: brew upgrade yt-dlp failed; continuing with $(yt-dlp --version 2>/dev/null || echo 'the installed version')." >&2
+    echo "      See the Troubleshooting section in README.md." >&2
+  fi
+}
+
 write_plist() {
   mkdir -p "$HOME/Library/LaunchAgents"
 
   local python_bin ytdlp_bin path_value home_value server_value ytdlp_value python_value
-  python_bin="$(command -v python3)"
-  ytdlp_bin="$(command -v yt-dlp)"
+  local cookie_value extra_env="" var
+  # Use Homebrew's binaries explicitly: `python3` on PATH may be conda/pyenv/system Python.
+  python_bin="$(brew --prefix)/bin/python3"
+  ytdlp_bin="$(brew --prefix)/bin/yt-dlp"
+  [[ -x "$python_bin" ]] || die "Homebrew python3 not found at $python_bin"
+  [[ -x "$ytdlp_bin" ]] || die "Homebrew yt-dlp not found at $ytdlp_bin"
   path_value="$(xml_escape "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")"
   home_value="$(xml_escape "$HOME")"
   server_value="$(xml_escape "$SERVER_PATH")"
   ytdlp_value="$(xml_escape "$ytdlp_bin")"
   python_value="$(xml_escape "$python_bin")"
+  cookie_value="$(xml_escape "${YTDLP_COOKIE_SOURCES:-chrome,safari}")"
+
+  # Optional settings: pass them when running the installer, e.g.
+  #   YTDLP_SAVE_DIR=~/Downloads ./install.sh
+  for var in YTDLP_SAVE_DIR YTDLP_AUTO_UPDATE YTDLP_DOWNLOAD_TIMEOUT; do
+    if [[ -n "${!var:-}" ]]; then
+      extra_env+="        <key>$var</key>
+        <string>$(xml_escape "${!var}")</string>
+"
+      echo "✓ $var=${!var}"
+    fi
+  done
 
   cat > "$PLIST_PATH" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -83,10 +109,10 @@ write_plist() {
         <key>PATH</key>
         <string>$path_value</string>
         <key>YTDLP_COOKIE_SOURCES</key>
-        <string>chrome,safari</string>
+        <string>$cookie_value</string>
         <key>YT_DLP_BIN</key>
         <string>$ytdlp_value</string>
-    </dict>
+${extra_env}    </dict>
 
     <key>RunAtLoad</key>
     <true/>
@@ -141,6 +167,7 @@ main() {
   ensure_formula python
   ensure_formula yt-dlp
   ensure_formula ffmpeg
+  upgrade_ytdlp
 
   write_plist
   restart_service
@@ -158,7 +185,14 @@ One-time Chrome step:
    $EXTENSION_DIR
 4. Accept the cookie permission prompt.
 
-After that, the server starts automatically on login. Open a YouTube video in Chrome and click the extension icon to download.
+Already loaded the extension before? Click its reload button in chrome://extensions
+so the popup matches the server version.
+
+After that, the server starts automatically on login and keeps yt-dlp up to date.
+Open a YouTube video in Chrome and click the extension icon to download.
+
+Server status: curl http://localhost:$PORT/ping
+Logs:          tail -f /tmp/ytdlp-server.log
 EOF
 }
 

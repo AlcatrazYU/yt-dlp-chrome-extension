@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """yt-dlp 本地服务器，供 Chrome 扩展调用"""
 
-import json, subprocess, os, threading, time, socket, tempfile
+import json, subprocess, os, sys, threading, time, socket, tempfile, shutil
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 
-SERVER_VERSION = "1.7"
+SERVER_VERSION = "1.8"
 
 
 def _default_ytdlp_path():
@@ -20,6 +20,16 @@ SAVE_DIR       = os.path.expanduser(os.environ.get("YTDLP_SAVE_DIR", "~/Desktop"
 PORT           = 19898
 CACHE_TTL      = 600  # 秒，10 分钟内同一视频直接返回缓存
 
+# 单个下载任务的最长时间（秒），默认 2 小时；设为 0 表示不限制
+try:
+    DOWNLOAD_TIMEOUT = int(os.environ.get("YTDLP_DOWNLOAD_TIMEOUT", "7200"))
+except ValueError:
+    DOWNLOAD_TIMEOUT = 7200
+
+# 本服务实际使用的 Python。读取 Safari Cookie 需要给它开「完全磁盘访问权限」，
+# Homebrew 升级 Python 后路径会变，需要重新授权。
+PYTHON_PATH = os.path.realpath(sys.executable)
+
 # Cookie 来源。可用环境变量覆盖，例如：
 # YTDLP_COOKIE_SOURCES=chrome
 # YTDLP_COOKIE_SOURCES=chrome:Default,safari
@@ -29,6 +39,15 @@ DEFAULT_COOKIE_SOURCES = "safari,chrome"
 # 代理设置（ClashX Meta 默认端口）
 PROXY_ADDR  = "127.0.0.1"
 PROXY_PORT  = 7890
+
+# yt-dlp 自动更新。YouTube 经常改接口，旧版 yt-dlp 很快就会失效。
+# 设置 YTDLP_AUTO_UPDATE=0 可关闭。
+AUTO_UPDATE           = os.environ.get("YTDLP_AUTO_UPDATE", "1") != "0"
+UPDATE_INTERVAL       = 24 * 3600  # 成功后每天检查一次
+UPDATE_RETRY_INTERVAL = 3600       # 失败（如刚开机还没联网）后 1 小时重试
+
+_update_lock  = threading.Lock()   # 更新期间暂停调用 yt-dlp
+_update_state = {"last_run": None, "message": "尚未检查"}
 
 
 def _proxy_available():
@@ -122,6 +141,25 @@ def _should_try_next_cookie_source(stderr):
     return any(needle in text for needle in needles)
 
 
+# YouTube 的视频地址偶尔会拒绝某次请求（HTTP 403）或中途断开。
+# 重新运行 yt-dlp 会重新解析、拿到新地址，通常就能成功；已下载的 .part 部分会续传。
+DOWNLOAD_RETRIES = 2  # 失败后额外重试的次数
+
+
+def _is_transient_error(stderr):
+    text = (stderr or "").lower()
+    needles = (
+        "http error 403",
+        "http error 5",          # 500/502/503
+        "timed out",
+        "connection reset",
+        "incompleteread",
+        "did not get any data blocks",
+        "unable to download video data",
+    )
+    return any(needle in text for needle in needles)
+
+
 def _safari_permission_blocked(stderr):
     text = (stderr or "").lower()
     return "operation not permitted" in text and "safari" in text
@@ -138,6 +176,9 @@ def _run_ytdlp(extra_args, timeout, retry_on_any_error=False, browser_cookies=No
     attempts = []
     last_result = None
     last_source = None
+
+    with _update_lock:  # 正在自动更新时，等更新完成再调用
+        pass
 
     try:
         for index, (source, auth_args) in enumerate(sources):
@@ -171,12 +212,36 @@ def _run_ytdlp(extra_args, timeout, retry_on_any_error=False, browser_cookies=No
                 pass
 
 
+def _extract_error(stderr):
+    """从 yt-dlp / brew 的 stderr 中取出真正的错误。
+
+    stderr 开头常是 WARNING（例如「版本超过 90 天」提醒，带多行缩进续行），
+    直接截取前几百字符会把后面的 ERROR 行截掉。
+    yt-dlp 写作 ERROR:/WARNING:，Homebrew 写作 Error:/Warning:。
+    """
+    lines = (stderr or "").strip().splitlines()
+    errors = [line.strip() for line in lines if line.lower().startswith("error:")]
+    if errors:
+        return "\n".join(errors)
+
+    kept, in_warning = [], False
+    for line in lines:
+        if line.lower().startswith("warning:"):
+            in_warning = True
+            continue
+        if in_warning and line.startswith(" "):
+            continue
+        in_warning = False
+        kept.append(line)
+    return "\n".join(kept).strip() or (stderr or "").strip()
+
+
 def _format_ytdlp_error(result, attempts):
-    stderr = (result.stderr or "").strip() if result else ""
+    stderr = _extract_error(result.stderr) if result else ""
     tried = "、".join(_cookie_label(a["source"]) for a in attempts)
     safari_blocked = any(_safari_permission_blocked(a["stderr"]) for a in attempts)
     non_safari_errors = [
-        (a["stderr"] or "").strip()
+        _extract_error(a["stderr"])
         for a in attempts
         if not _safari_permission_blocked(a["stderr"]) and (a["stderr"] or "").strip()
     ]
@@ -189,13 +254,78 @@ def _format_ytdlp_error(result, attempts):
         )
     if safari_blocked:
         return (
-            "Safari Cookie 被 macOS 隐私权限拦截。请给当前 Python 可执行文件开启"
-            f"「完全磁盘访问权限」，或设置 {COOKIE_SOURCES_ENV}=chrome 后重启服务。"
+            "Safari Cookie 被 macOS 隐私权限拦截。请给本服务使用的 Python（"
+            f"{PYTHON_PATH}）开启「完全磁盘访问权限」，"
+            f"或设置 {COOKIE_SOURCES_ENV}=chrome 后重启服务。"
             f"原始错误：{stderr[:180]}"
         )
     if len(attempts) > 1:
         return f"已尝试 Cookie 来源（{tried}）。最后错误：{stderr[:240] or '无法解析视频信息'}"
     return stderr[:300] or "无法解析视频信息"
+
+
+# ── yt-dlp 自动更新 ──────────────────────────────────────────
+def _ytdlp_version():
+    try:
+        r = subprocess.run([YT_DLP, "--version"], capture_output=True, text=True, timeout=30)
+        return r.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def _update_cmd():
+    """Homebrew 安装的用 brew upgrade，否则用 yt-dlp 自带的 -U（适用于独立二进制）。"""
+    real_path = os.path.realpath(shutil.which(YT_DLP) or YT_DLP)
+    if "/Cellar/yt-dlp/" in real_path:
+        brew = shutil.which("brew") or next(
+            (p for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.path.exists(p)),
+            "brew",
+        )
+        return [brew, "upgrade", "yt-dlp"]
+    return [YT_DLP, "-U"]
+
+
+def _update_ytdlp():
+    """升级 yt-dlp，返回是否成功。下载进行中时先等待，避免中途替换文件。"""
+    while True:
+        with _lock:
+            busy = _state["running"]
+        if not busy:
+            break
+        time.sleep(60)
+
+    env = dict(os.environ,
+               HOMEBREW_NO_ENV_HINTS="1",
+               HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK="1",
+               # 升级可能连带升级 Python，保留旧版本，避免正在运行的本服务被删掉解释器
+               HOMEBREW_NO_INSTALL_CLEANUP="1")
+    with _update_lock:
+        before = _ytdlp_version()
+        try:
+            r = subprocess.run(_update_cmd(), capture_output=True, text=True,
+                               timeout=900, env=env)
+            ok = r.returncode == 0
+            detail = _extract_error(r.stderr)[:200]
+        except Exception as e:
+            ok, detail = False, str(e)[:200]
+        after = _ytdlp_version()
+
+    if not ok:
+        msg = f"更新失败（当前 {before}）：{detail}"
+    elif before != after:
+        msg = f"已从 {before} 更新到 {after}"
+    else:
+        msg = f"已是最新（{after}）"
+    _update_state.update({"last_run": time.strftime("%Y-%m-%d %H:%M:%S"), "message": msg})
+    print(f"🔄 yt-dlp {msg}", flush=True)
+    return ok
+
+
+def _auto_update_loop():
+    while True:
+        ok = _update_ytdlp()
+        time.sleep(UPDATE_INTERVAL if ok else UPDATE_RETRY_INTERVAL)
+
 
 _lock  = threading.Lock()
 _state = {"running": False, "message": "空闲"}
@@ -253,8 +383,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({
                 "ok": True,
                 "version": SERVER_VERSION,
+                "save_dir": SAVE_DIR,
+                "python": PYTHON_PATH,
                 "cookie_sources": _cookie_sources(),
+                "ytdlp_version": _ytdlp_version(),
+                "auto_update": AUTO_UPDATE,
+                "last_update": dict(_update_state),
             })
+        elif p.path == "/update":
+            if _update_lock.locked():
+                self.send_json({"ok": True, "message": "正在更新中"})
+            else:
+                threading.Thread(target=_update_ytdlp, daemon=True).start()
+                self.send_json({"ok": True, "message": "已开始在后台更新 yt-dlp"})
         elif p.path == "/status":
             with _lock:
                 self.send_json(dict(_state))
@@ -370,15 +511,24 @@ class Handler(BaseHTTPRequestHandler):
                 "--sub-format", "srt",
             ]
         try:
-            r, cookie_source, attempts = _run_ytdlp(
-                cmd, timeout=600, browser_cookies=browser_cookies
-            )
-            if r.returncode == 0:
-                msg = "下载完成 ✓"
-            else:
-                msg  = f"失败：{_format_ytdlp_error(r, attempts)[:120]}"
+            for attempt in range(1, DOWNLOAD_RETRIES + 2):
+                r, cookie_source, attempts = _run_ytdlp(
+                    cmd, timeout=DOWNLOAD_TIMEOUT or None, browser_cookies=browser_cookies
+                )
+                if r.returncode == 0:
+                    msg = "下载完成 ✓" if attempt == 1 else f"下载完成 ✓（重试 {attempt - 1} 次后成功）"
+                    break
+                error = _format_ytdlp_error(r, attempts)
+                print(f"⚠️ 下载失败（第 {attempt} 次）{url}：{error[:500]}", flush=True)
+                msg = f"失败：{error[:300]}"
+                if attempt > DOWNLOAD_RETRIES or not _is_transient_error(r.stderr):
+                    break
+                with _lock:
+                    _state = {"running": True,
+                              "message": f"下载出错，正在重试（{attempt}/{DOWNLOAD_RETRIES}）…"}
+                time.sleep(3)
         except subprocess.TimeoutExpired:
-            msg = "下载超时（10 分钟）"
+            msg = f"下载超时（{DOWNLOAD_TIMEOUT // 60} 分钟），可用 YTDLP_DOWNLOAD_TIMEOUT 调整"
         except Exception as e:
             msg = f"错误：{str(e)[:120]}"
 
@@ -408,10 +558,14 @@ if __name__ == "__main__":
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"✅ 服务器已启动 → http://localhost:{PORT}")
     print(f"📁 下载目录：{SAVE_DIR}")
+    print(f"🐍 Python：{PYTHON_PATH}")
     print(f"🍪 Cookie 来源：{', '.join(_cookie_sources())}")
     proxy_status = f"http://{PROXY_ADDR}:{PROXY_PORT}" if _proxy_available() else "未检测到（直连）"
     print(f"🌐 代理：{proxy_status}")
-    print("按 Ctrl+C 停止\n")
+    print(f"🔄 yt-dlp {_ytdlp_version()}，自动更新：{'开启' if AUTO_UPDATE else '关闭'}")
+    print("按 Ctrl+C 停止\n", flush=True)
+    if AUTO_UPDATE:
+        threading.Thread(target=_auto_update_loop, daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

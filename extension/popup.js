@@ -9,6 +9,7 @@ let videoInfo    = null
 let selectedSubs = new Set()
 let showAllSubs  = false
 let pollTimer    = null
+let serverInfo   = {}
 
 const root = document.getElementById('root')
 const COOKIE_DOMAINS = ['youtube.com', 'google.com']
@@ -52,6 +53,20 @@ function showError(icon, title, detail, extra) {
   ))
 }
 
+// 扩展与本地服务版本不一致时（例如 git pull 后没有重启服务），给出提示
+function versionNotice() {
+  const extVersion = chrome.runtime.getManifest().version
+  const srvVersion = serverInfo.version
+  if (!srvVersion || srvVersion === extVersion) return null
+  return h('div', {class: 'notice'},
+    `本地服务为 v${srvVersion}，扩展为 v${extVersion}。` +
+    '请在项目目录重新运行 ./install.sh，然后在 chrome://extensions 刷新本扩展。')
+}
+
+function displayPath(path) {
+  return (path || '~/Desktop').replace(/^\/Users\/[^/]+/, '~')
+}
+
 async function collectBrowserCookies() {
   if (!chrome.cookies) return []
 
@@ -84,6 +99,9 @@ async function collectBrowserCookies() {
 function renderMain() {
   clearRoot()
   const info = videoInfo
+
+  const notice = versionNotice()
+  if (notice) root.appendChild(notice)
 
   // 视频信息栏
   const thumb = h('img', {class: 'thumbnail', src: info.thumbnail || '', alt: ''})
@@ -170,7 +188,8 @@ function renderMain() {
   ))
 
   // 底部下载区
-  const statusEl = h('div', {class: 'status-text', id: 'status-txt'}, '保存到：~/Desktop')
+  const statusEl = h('div', {class: 'status-text', id: 'status-txt'},
+    `保存到：${displayPath(serverInfo.save_dir)}`)
   const btn = h('button', {class: 'download-btn', id: 'dl-btn', onclick: handleDownload}, '下载')
   root.appendChild(h('div', {class: 'footer'}, btn, statusEl))
 }
@@ -262,10 +281,18 @@ async function init() {
   try {
     const r = await fetch(`${API}/ping`, {signal: AbortSignal.timeout(3000)})
     if (!r.ok) throw new Error()
+    serverInfo = await r.json()
   } catch {
     showError('🔌', '本地服务器未运行',
-      '请在终端执行以下命令，然后重新点击扩展图标：',
-      h('div', {class: 'code-block'}, 'python3 ~/yt-dlp-extension/server.py')
+      '已用 install.sh 安装过的，在终端执行以下命令重启服务：',
+      h('div', {},
+        h('div', {class: 'code-block'},
+          'launchctl kickstart -k gui/$(id -u)/com.user.ytdlp-server'),
+        h('div', {class: 'error-detail', style: {marginTop: '10px'}},
+          '首次使用请在项目目录运行 ./install.sh。'),
+        h('div', {class: 'error-detail'},
+          '日志：tail -f /tmp/ytdlp-server.log')
+      )
     )
     return
   }
@@ -284,7 +311,7 @@ async function init() {
     const data = await res.json()
 
     if (data.error) {
-      showError('⚠️', '获取视频信息失败', data.error)
+      showError('⚠️', '获取视频信息失败', data.error, versionNotice())
       return
     }
     videoInfo = data

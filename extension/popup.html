@@ -156,9 +156,22 @@ select:focus { border-color: #cc0000; }
   margin-top: 7px;
   min-height: 16px;
   line-height: 1.5;
+  white-space: pre-line;
+  word-break: break-word;
 }
 .status-text.success { color: #2e7d32; font-weight: 500; }
 .status-text.error   { color: #c62828; }
+
+/* ── 提示条 ── */
+.notice {
+  background: #fff8e1;
+  color: #7a5c00;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f0e2a8;
+}
+.error-screen .notice { margin-top: 12px; border: 1px solid #f0e2a8; border-radius: 6px; text-align: left; }
 
 /* ── 加载 ── */
 .loading {
@@ -189,7 +202,7 @@ select:focus { border-color: #cc0000; }
 }
 .error-icon  { font-size: 36px; margin-bottom: 10px; }
 .error-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-.error-detail { font-size: 12px; color: #666; line-height: 1.6; }
+.error-detail { font-size: 12px; color: #666; line-height: 1.6; word-break: break-word; }
 .code-block {
   display: inline-block;
   background: #f5f5f5;
